@@ -7,10 +7,16 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.DefaultItemAnimator;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+import androidx.room.Room;
+import androidx.room.RoomDatabase;
+import androidx.sqlite.db.SupportSQLiteDatabase;
 
 import android.content.DialogInterface;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.TextUtils;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -21,17 +27,19 @@ import android.widget.Toast;
 
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 
-import com.mastercoding.helloworld2.db.DatabaseHelper;
+import com.mastercoding.helloworld2.db.ContactsAppDatabase;
 import com.mastercoding.helloworld2.db.entity.Contact;
 import com.mastercoding.helloworld2.adapter.ContactsAdapter;
 
 
 import java.util.ArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class MainActivity extends AppCompatActivity {
 
-    // NO ROOM Database Project
-    // Using SQLITE
+    // ROOM Database Project
+    //
 
 
 
@@ -39,7 +47,7 @@ public class MainActivity extends AppCompatActivity {
     private ContactsAdapter contactsAdapter;
     private ArrayList<Contact> contactArrayList  = new ArrayList<>();
     private RecyclerView recyclerView;
-    private DatabaseHelper db;
+    private ContactsAppDatabase contactsAppDatabase;
 
 
     @Override
@@ -56,10 +64,37 @@ public class MainActivity extends AppCompatActivity {
 
         // RecyclerVIew
         recyclerView = findViewById(R.id.recycler_view_contacts);
-        db = new DatabaseHelper(this);
+        //CallBacks
+        RoomDatabase.Callback myCallBack = new RoomDatabase.Callback() {
+            @Override
+            public void onCreate(@NonNull SupportSQLiteDatabase db) {
+                super.onCreate(db);
+                // These are 4 contacts already created in the app when installed
+//                CreateContact("Bill Gates","billgates@microsoft.com");
+//                CreateContact("Nicolas Tesla","nicolastesla@gmail.com");
+//                CreateContact("Mark zuker","mark@facebook.com");
+//                CreateContact("Satushi Namk","satushi@bitcoin.com");
+//                Log.i("TAG","Database has been Created");
+            }
 
-        // Contacts List
-        contactArrayList.addAll(db.getAllContacts());
+            @Override
+            public void onOpen(@NonNull SupportSQLiteDatabase db) {
+                super.onOpen(db);
+                Log.i("TAG","Database has been Opened");
+            }
+        };
+
+
+        //Database
+        contactsAppDatabase = Room.databaseBuilder(
+                getApplicationContext(),
+                ContactsAppDatabase.class,
+                "contactDB"
+        ).addCallback(myCallBack).build();
+
+        // Displaying All Contacts List
+        //contactArrayList.addAll(contactsAppDatabase.getContactDAO().getContacts());
+        displayAllContactInBackGround();
 
         contactsAdapter = new ContactsAdapter(this, contactArrayList,MainActivity.this);
         RecyclerView.LayoutManager layoutManager = new LinearLayoutManager(getApplicationContext());
@@ -146,7 +181,7 @@ public class MainActivity extends AppCompatActivity {
     private void DeleteContact(Contact contact, int position) {
 
         contactArrayList.remove(position);
-        db.deleteContact(contact);
+        contactsAppDatabase.getContactDAO().deleteContact(contact);
         contactsAdapter.notifyDataSetChanged();
 
 
@@ -159,7 +194,7 @@ public class MainActivity extends AppCompatActivity {
         contact.setName(name);
         contact.setEmail(email);
 
-        db.updateContact(contact);
+        contactsAppDatabase.getContactDAO().updateContact(contact);
 
         contactArrayList.set(position, contact);
         contactsAdapter.notifyDataSetChanged();
@@ -170,14 +205,35 @@ public class MainActivity extends AppCompatActivity {
 
     private void CreateContact(String name, String email){
 
-        long id = db.insertContact(name, email);
-        Contact contact = db.getContact(id);
+        long id = contactsAppDatabase.getContactDAO().addContact(new Contact(name,email,0));
+        Contact contact = contactsAppDatabase.getContactDAO().getContact(id);
 
         if (contact != null){
             contactArrayList.add(0, contact);
             contactsAdapter.notifyDataSetChanged();
         }
 
+    }
+    //Database operations on separate thread
+    public void displayAllContactInBackGround() {
+        ExecutorService executorService = Executors.newSingleThreadExecutor();
+        Handler handler = new Handler(Looper.getMainLooper());
+
+        executorService.execute(new Runnable() {
+            @Override
+            public void run() {
+                //Background Work
+                contactArrayList.addAll(contactsAppDatabase.getContactDAO().getContacts());
+
+                //Executed after the backgrond work had finished
+                handler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        contactsAdapter.notifyDataSetChanged();
+                    }
+                });
+            }
+        });
     }
 
 
